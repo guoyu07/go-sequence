@@ -5,7 +5,7 @@ $fp = fsockopen("127.0.0.1", 6381, $errno, $errstr, 30);
 if (!$fp) {
     echo "$errstr ($errno)<br />\n";
 } else {
-    $out = '{"AppName":"test", "IdQueue":"test", "step":10}';
+    $out = '{"AppName":"test", "IdQueue":"test1", "step":10}';
     $out .= "\n";
     fwrite($fp, $out);
     // echo fgets($fp, 128);
