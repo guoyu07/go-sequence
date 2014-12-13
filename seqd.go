@@ -1,21 +1,21 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"strings"
-	"bytes"
-	"bufio"
-	"strconv"
-	"encoding/json"
 	"log"
 	"net"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/garyburd/redigo/redis"
-        _ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql"
 )
 
 const dataSource = "root@tcp(127.0.0.1:3306)/test"
@@ -24,13 +24,13 @@ const redisNS = "SeqGend:"
 
 type Conf struct {
 	AppName, IdQueue string
-	Step int
+	Step             int
 }
 
 type QueueState struct {
 	RedisKey string
 	LastTime time.Time
-	Ticker *time.Ticker
+	Ticker   *time.Ticker
 }
 
 var redisPool *redis.Pool
@@ -38,25 +38,25 @@ var mysqlConn *sql.DB
 var QueueStateMap map[string]*QueueState
 
 func newPool(server, password string) *redis.Pool {
-    return &redis.Pool{
-        MaxIdle: 3,
-        IdleTimeout: 240 * time.Second,
-        Dial: func () (redis.Conn, error) {
-            c, err := redis.Dial("tcp", server)
-            if err != nil {
-                return nil, err
-            }
-	    // if _, err := c.Do("AUTH", password); err != nil {
-            //    c.Close()
-            //    return nil, err
-            // }
-            return c, err
-        },
-        TestOnBorrow: func(c redis.Conn, t time.Time) error {
-            _, err := c.Do("PING")
-            return err
-        },
-    }
+	return &redis.Pool{
+		MaxIdle:     3,
+		IdleTimeout: 240 * time.Second,
+		Dial: func() (redis.Conn, error) {
+			c, err := redis.Dial("tcp", server)
+			if err != nil {
+				return nil, err
+			}
+			// if _, err := c.Do("AUTH", password); err != nil {
+			//    c.Close()
+			//    return nil, err
+			// }
+			return c, err
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
+	}
 }
 
 func main() {
@@ -88,14 +88,14 @@ func main() {
 }
 
 func handle(conn net.Conn, out chan string) {
-	
+
 	defer close(out)
 
-	conn.SetReadDeadline(time.Now().Add(2 * time.Second))  // set 2 seconds timeout
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second)) // set 2 seconds timeout
 
 	for {
 		line, err := bufio.NewReader(conn).ReadBytes('\n')
-		
+
 		if err != nil {
 			log.Println("Client close connection:", conn.RemoteAddr().String())
 			return
@@ -117,21 +117,21 @@ func handle(conn net.Conn, out chan string) {
 		go generate(conf, out)
 
 		redisKey := getRedisKey(conf)
-		
+
 		_, ok := QueueStateMap[redisKey]
-		if ok == false{
+		if ok == false {
 			log.Println("New Queue add to Map ...")
 			QueueStateMap[redisKey] = &QueueState{RedisKey: redisKey, LastTime: time.Now(), Ticker: time.NewTicker(time.Millisecond * 100)}
 		}
-		
+
 		queueStateChannel := queueMonitor(conf)
 		queueStateChannel <- QueueStateMap[redisKey]
 	}
 }
 
-func send(conn net.Conn, in <- chan string) {
+func send(conn net.Conn, in <-chan string) {
 	defer conn.Close()
-	message := <- in
+	message := <-in
 	log.Print("Sending data to client ... ", message)
 	io.Copy(conn, bytes.NewBufferString(message))
 }
@@ -141,7 +141,7 @@ func generate(conf Conf, out chan string) {
 	redisKey := getRedisKey(conf)
 	n, err := redis.Int(redisConn.Do("LPOP", redisKey))
 	if err != nil {
-		log.Println("Noting to POP In Redis in " + redisKey )
+		log.Println("Noting to POP In Redis in " + redisKey)
 		// handle error
 	}
 	str := strconv.Itoa(n)
@@ -162,24 +162,24 @@ func push(conf Conf) bool {
 	fmt.Println("Last insert id: ", lastSeq)
 	redisConn.Send("MULTI")
 	for i := conf.Step; i > 0; i-- {
-		redisConn.Send("RPUSH", getRedisKey(conf), lastSeq - i + 1)
+		redisConn.Send("RPUSH", getRedisKey(conf), lastSeq-i+1)
 	}
-	_, err1 := redisConn.Do("EXEC");
-	if(err1 != nil) {
+	_, err1 := redisConn.Do("EXEC")
+	if err1 != nil {
 		fmt.Println("redis transaction failed")
 		return false
 	}
 	return true
 }
 
-func queueMonitor(conf Conf) chan <- *QueueState {
+func queueMonitor(conf Conf) chan<- *QueueState {
 	redisConn := redisPool.Get()
 	accessQueueState := make(chan *QueueState)
 	redisKey := getRedisKey(conf)
 	go func() {
 		for {
 			select {
-			case t := <- QueueStateMap[redisKey].Ticker.C:
+			case t := <-QueueStateMap[redisKey].Ticker.C:
 				l, err := redis.Int(redisConn.Do("llen", redisKey))
 				if err != nil {
 					log.Println("Redis do `llen` failed ... `" + redisKey + "` ... ")
@@ -191,10 +191,10 @@ func queueMonitor(conf Conf) chan <- *QueueState {
 				}
 				log.Println("Tick at", t)
 
-			case <- accessQueueState:
+			case <-accessQueueState:
 				QueueStateMap[redisKey].LastTime = time.Now()
 				for _, queueState := range QueueStateMap {
-					if queueState.LastTime.Unix() + 60 < time.Now().Unix() {
+					if queueState.LastTime.Unix()+60 < time.Now().Unix() {
 						log.Println("Long time no acess, stop ticker", queueState.RedisKey)
 						queueState.Ticker.Stop()
 					}
